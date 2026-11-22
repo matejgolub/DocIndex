@@ -2,22 +2,30 @@ import argparse
 from pathlib import Path
 import sys
 
+from readers import SUPPORTED_EXTENSIONS, read_document
 
-TEXT_EXTENSIONS = {".txt", ".md"}
+
+PART_LABELS = {".pdf": "Stranica", ".pptx": "Slajd"}
 
 
 def find_documents(folder):
     documents = (
         path for path in folder.rglob("*")
-        if path.suffix.lower() in TEXT_EXTENSIONS and path.is_file()
+        if path.suffix.lower() in SUPPORTED_EXTENSIONS and path.is_file()
     )
     return sorted(documents, key=lambda path: (str(path).casefold(), str(path)))
 
 
-def read_document(path):
-    if path.suffix.lower() not in TEXT_EXTENSIONS:
-        raise ValueError("Podržane su samo TXT i Markdown datoteke (.txt, .md).")
-    return path.read_text(encoding="utf-8-sig")
+def print_document(path):
+    parts = read_document(path)
+    label = PART_LABELS.get(path.suffix.lower())
+    if label is None:
+        print(parts[0].text, end="")
+        return
+
+    for part in parts:
+        print(f"{label} {part.number}")
+        print(part.text.rstrip() if part.text.strip() else "(bez teksta)")
 
 
 def main():
@@ -31,23 +39,31 @@ def main():
     read.add_argument("path", type=Path, metavar="datoteka")
 
     args = parser.parse_args()
-    try:
-        if args.command == "scan":
-            folder = args.folder.expanduser()
-            if not folder.is_dir():
-                parser.error(f"Mapa ne postoji ili nije direktorij: {folder}")
+    if args.command == "scan":
+        folder = args.folder.expanduser()
+        if not folder.is_dir():
+            parser.error(f"Mapa ne postoji ili nije direktorij: {folder}")
+        try:
             documents = find_documents(folder)
-            for path in documents:
-                print(path.relative_to(folder))
-            print(f"Pronađeno dokumenata: {len(documents)}")
-        else:
-            path = args.path.expanduser()
-            print(read_document(path), end="")
+        except OSError as error:
+            print(error, file=sys.stderr)
+            return 1
+        for path in documents:
+            print(path.relative_to(folder))
+        print(f"Pronađeno dokumenata: {len(documents)}")
+        return 0
+
+    path = args.path.expanduser()
+    try:
+        print_document(path)
     except UnicodeDecodeError:
         print(f"Datoteka nije zapisana u UTF-8 formatu: {path}", file=sys.stderr)
         return 1
+    except ModuleNotFoundError:
+        print("Nedostaju paketi. Pokreni: python -m pip install -r requirements.txt", file=sys.stderr)
+        return 1
     except (OSError, ValueError) as error:
-        print(error, file=sys.stderr)
+        print(f"Ne mogu pročitati {path}: {error}", file=sys.stderr)
         return 1
 
     return 0
