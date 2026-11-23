@@ -1,11 +1,14 @@
 import argparse
 from pathlib import Path
+import sqlite3
 import sys
 
+from document_index import build_index, search_index
 from readers import SUPPORTED_EXTENSIONS, read_document
 
 
 PART_LABELS = {".pdf": "Stranica", ".pptx": "Slajd"}
+DEFAULT_DATABASE = Path("docindex.sqlite3")
 
 
 def find_documents(folder):
@@ -38,11 +41,21 @@ def main():
     read = commands.add_parser("read", help="Ispiši sadržaj dokumenta.")
     read.add_argument("path", type=Path, metavar="datoteka")
 
+    index = commands.add_parser("index", help="Izgradi lokalni indeks dokumenata.")
+    index.add_argument("folder", type=Path, metavar="mapa")
+    index.add_argument("--db", type=Path, default=DEFAULT_DATABASE, help="Putanja do baze indeksa.")
+
+    search = commands.add_parser("search", help="Pronađi dokumente koji sadrže riječ.")
+    search.add_argument("word", metavar="riječ")
+    search.add_argument("--db", type=Path, default=DEFAULT_DATABASE, help="Putanja do baze indeksa.")
+
     args = parser.parse_args()
-    if args.command == "scan":
+    if args.command in {"scan", "index"}:
         folder = args.folder.expanduser()
         if not folder.is_dir():
             parser.error(f"Mapa ne postoji ili nije direktorij: {folder}")
+
+    if args.command == "scan":
         try:
             documents = find_documents(folder)
         except OSError as error:
@@ -51,6 +64,28 @@ def main():
         for path in documents:
             print(path.relative_to(folder))
         print(f"Pronađeno dokumenata: {len(documents)}")
+        return 0
+
+    if args.command in {"index", "search"}:
+        database = args.db.expanduser()
+        try:
+            if args.command == "index":
+                count, skipped = build_index(database, find_documents(folder.resolve()))
+                for path, error in skipped:
+                    print(f"Preskočeno {path}: {error}", file=sys.stderr)
+                print(f"Indeksirano dokumenata: {count}")
+            else:
+                paths = search_index(database, args.word)
+                for path in paths:
+                    print(path)
+                if not paths:
+                    print("Nema rezultata.")
+        except ModuleNotFoundError:
+            print("Nedostaju paketi. Pokreni: python -m pip install -r requirements.txt", file=sys.stderr)
+            return 1
+        except (OSError, ValueError, sqlite3.Error) as error:
+            print(error, file=sys.stderr)
+            return 1
         return 0
 
     path = args.path.expanduser()
