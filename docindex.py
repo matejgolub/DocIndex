@@ -8,6 +8,7 @@ from readers import SUPPORTED_EXTENSIONS, read_document
 
 
 PART_LABELS = {".pdf": "Stranica", ".pptx": "Slajd"}
+FILE_TYPES = sorted(extension[1:] for extension in SUPPORTED_EXTENSIONS)
 DEFAULT_DATABASE = Path("docindex.sqlite3")
 
 
@@ -31,6 +32,19 @@ def print_document(path):
         print(part.text.rstrip() if part.text.strip() else "(bez teksta)")
 
 
+def print_results(results):
+    if not results:
+        print("Nema rezultata.")
+        return
+    for result in results:
+        label = PART_LABELS.get(result.path.suffix.lower())
+        if label and result.number is not None:
+            print(f"{result.path} ({label} {result.number})")
+        else:
+            print(result.path)
+        print(f"  {result.snippet}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="DocIndex, lokalni pregled dokumenata.")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -48,6 +62,7 @@ def main():
     search = commands.add_parser("search", help="Pronađi dokumente koji sadrže riječ.")
     search.add_argument("word", metavar="riječ")
     search.add_argument("--db", type=Path, default=DEFAULT_DATABASE, help="Putanja do baze indeksa.")
+    search.add_argument("--type", type=str.lower, choices=FILE_TYPES, help="Format datoteke.")
 
     args = parser.parse_args()
     if args.command in {"scan", "index"}:
@@ -74,12 +89,11 @@ def main():
                 for path, error in skipped:
                     print(f"Preskočeno {path}: {error}", file=sys.stderr)
                 print(f"Indeksirano dokumenata: {count}")
+                if skipped:
+                    print(f"Preskočeno dokumenata: {len(skipped)}")
             else:
-                paths = search_index(database, args.word)
-                for path in paths:
-                    print(path)
-                if not paths:
-                    print("Nema rezultata.")
+                extension = f".{args.type}" if args.type else None
+                print_results(search_index(database, args.word, extension))
         except ModuleNotFoundError:
             print("Nedostaju paketi. Pokreni: python -m pip install -r requirements.txt", file=sys.stderr)
             return 1
